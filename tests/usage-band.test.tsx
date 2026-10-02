@@ -2,6 +2,9 @@ import type { On, SessionMeasureInput, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const NOW = Date.parse('2026-10-02T10:00:00Z')
+const LOW = '#3A82DA'
+const WARNING = '#C98414'
+const CRITICAL = '#D2544A'
 
 const BAND = {
   plugin: 'usage-band',
@@ -14,6 +17,13 @@ const BAND = {
     scroll: { offset: 0, bodyRows: 10 },
     view: {},
   },
+} as const
+
+const RUN = {
+  command: 'usage-band',
+  args: '',
+  origin: { kind: 'composer' },
+  presentation: { isFullscreen: false, columns: 120 },
 } as const
 
 const MEASURE: SessionMeasureInput = {
@@ -38,35 +48,80 @@ const engine = (on: On) => {
   return clock
 }
 
-test('draws both windows on the desktop', async ($, on) => {
+test('draws one mark and one percentage per window on the desktop', async (
+  $,
+  on,
+) => {
   engine(on)
   await $.session.measure(MEASURE)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svgs = await ui.findAll({ type: 'Svg' })
+  const session = String(svgs[0]?.props.source)
+  const week = String(svgs[1]?.props.source)
 
-  expect(await ui.find({ type: 'Text', text: 'Current session' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '42%' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /resets in 2h 14m/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Weekly' })).toBeDefined()
+  expect(svgs.length).toBe(2)
+  expect(svgs[0]?.props.alt).toBe('Current session: 42% used, resets in 2h 14m')
+  expect(svgs[1]?.props.alt).toBe('Weekly: 92% used, resets in 3d 4h')
+  // The outer ring is the share used, the wedge the share of time left.
+  expect(session.includes('stroke-dasharray="24.81 59.06"')).toBe(true)
+  expect(session.includes('stroke-dasharray="8.42 18.85"')).toBe(true)
+  expect(week.includes('stroke-dasharray="54.04 59.06"')).toBe(true)
+  expect(week.includes('stroke-dasharray="8.53 18.85"')).toBe(true)
+  expect((await ui.find({ type: 'Text', text: '42%' }))?.props.color).toBe(LOW)
   expect((await ui.find({ type: 'Text', text: '92%' }))?.props.color).toBe(
-    'error',
+    CRITICAL,
   )
-  expect(await ui.find({ type: 'Text', text: /resets in 3d 4h/ })).toBeDefined()
-  expect((await ui.findAll({ type: 'Svg' })).length).toBe(2)
+  expect(await ui.find({ type: 'Text', text: 'Current session' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
 
   await ui.unmount()
 })
 
-test('hides on its button and stays out of the terminal', async ($, on) => {
+test('turns amber at 70% and stays blue below it', async ($, on) => {
+  engine(on)
+  await $.session.measure({
+    ...MEASURE,
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 69.4, resetsAt: '2026-10-02T12:14:00Z' },
+      { kind: 'seven_day', percentUsed: 70, resetsAt: '2026-10-05T14:00:00Z' },
+    ],
+  })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svgs = await ui.findAll({ type: 'Svg' })
+
+  expect((await ui.find({ type: 'Text', text: '69%' }))?.props.color).toBe(LOW)
+  expect((await ui.find({ type: 'Text', text: '70%' }))?.props.color).toBe(
+    WARNING,
+  )
+  expect(String(svgs[0]?.props.source).includes(`stroke="${LOW}"`)).toBe(true)
+  expect(String(svgs[1]?.props.source).includes(`stroke="${WARNING}"`)).toBe(
+    true,
+  )
+
+  await ui.unmount()
+})
+
+test('hides and shows on /usage-band, and stays out of the terminal', async (
+  $,
+  on,
+) => {
   engine(on)
   await $.session.measure(MEASURE)
 
   const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await terminal.find({ text: 'Current session' })).toBeUndefined()
+  expect(await terminal.find({ text: '42%' })).toBeUndefined()
   await terminal.unmount()
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await ui.press({ key: 'hide' })
-  expect(await ui.find({ text: 'Current session' })).toBeUndefined()
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+
+  await $.command.run(RUN)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+
+  await $.command.run(RUN)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
 
   await ui.unmount()
 })
@@ -137,15 +192,24 @@ test('reads the figures again on its ten-minute timer', async (
   await ui.unmount()
 })
 
-test('shows a window past its reset time as reset, at 0%', async ($, on) => {
+test('shows a window past its reset time at 0% with no time left', async (
+  $,
+  on,
+) => {
   const clock = engine(on)
   await $.session.measure(MEASURE)
   await clock.set(Date.parse('2026-10-02T12:15:00Z'))
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svgs = await ui.findAll({ type: 'Svg' })
+  const session = String(svgs[0]?.props.source)
 
-  expect(await ui.find({ type: 'Text', text: 'Current session' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '0%' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '· reset' })).toBeDefined()
+  expect(svgs[0]?.props.alt).toBe('Current session: 0% used, reset')
+  expect(session.includes('stroke-dasharray="0.00 59.06"')).toBe(true)
+  expect(session.includes('stroke-dasharray="0.00 18.85"')).toBe(true)
+  expect((await ui.find({ type: 'Text', text: '0%' }))?.props.color).toBe(LOW)
+  expect(String(svgs[1]?.props.source).includes('stroke-dasharray="8.27 18.85"')).toBe(
+    true,
+  )
   expect(await ui.find({ type: 'Text', text: '92%' })).toBeDefined()
 
   await ui.unmount()

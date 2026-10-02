@@ -10,13 +10,40 @@ const MINUTE = 60_000
 // The figures arrive with session.measure, after each turn. This slow read is
 // only a safety net for a measurement that never came.
 const POLL = 10 * MINUTE
-const BAR_WIDTH = 96
-const BAR_HEIGHT = 6
-// The Svg is drawn as an image, so it cannot read the app's theme: the fill is
-// Claude's clay accent and the track a translucent grey that sits on light and dark.
-const ACCENT = '#D97757'
-const CRITICAL = '#C4453A'
+
+// One mark per window: an icon for the kind of window, then a dial. The dial's
+// outer ring is the share of the limit used, the wedge in its centre the share
+// of the window's time still left.
+const MARK_WIDTH = 41
+const MARK_HEIGHT = 22
+const RING = 59.06 // the circumference of the outer ring, r = 9.4
+const WEDGE = 18.85 // the circumference the wedge is drawn on, r = 3
+// The Svg is drawn as an image, so it cannot read the app's theme: these are
+// mid-tones that hold on both the light and the dark ground. The percentage
+// takes the same colour as its ring.
+const LOW = '#3A82DA'
+const WARNING = '#C98414'
+const CRITICAL = '#D2544A'
+const QUIET = '#87867F'
 const TRACK = '#8C8C8C'
+
+const HOURGLASS =
+  '<path d="M3.4 1.6h6.2M3.4 11.4h6.2M4 1.6v1.6l2.5 3.3L9 3.2V1.6M4 11.4V9.8l2.5-3.3L9 9.8v1.6"/>'
+const CALENDAR =
+  '<rect x="1.8" y="2.8" width="9.4" height="8.4" rx="1.6"/><path d="M1.8 5.7h9.4M4.4 1.5v2.4M8.6 1.5v2.4"/>'
+
+const SESSION = {
+  kind: 'five_hour',
+  label: 'Current session',
+  icon: HOURGLASS,
+  span: 5 * 60 * MINUTE,
+}
+const WEEK = {
+  kind: 'seven_day',
+  label: 'Weekly',
+  icon: CALENDAR,
+  span: 7 * 24 * 60 * MINUTE,
+}
 
 const windowOf = (list: readonly Limit[], kind: string) =>
   list.find(one => one.kind === kind) ??
@@ -49,19 +76,22 @@ const remaining = (resetsAt: string | undefined, now: number) => {
   return `resets in ${minutes}m`
 }
 
-const bar = (percent: number) => {
-  const share = Math.min(100, Math.max(0, percent)) / 100
-  const filled =
-    share === 0 ? 0 : Math.max(BAR_HEIGHT, Math.round(BAR_WIDTH * share))
-  const radius = BAR_HEIGHT / 2
+const share = (value: number) =>
+  Number.isNaN(value) ? 0 : Math.min(1, Math.max(0, value))
 
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${BAR_WIDTH}" height="${BAR_HEIGHT}" viewBox="0 0 ${BAR_WIDTH} ${BAR_HEIGHT}">`,
-    `<rect width="${BAR_WIDTH}" height="${BAR_HEIGHT}" rx="${radius}" fill="${TRACK}" fill-opacity="0.3"/>`,
-    `<rect width="${filled}" height="${BAR_HEIGHT}" rx="${radius}" fill="${percent >= 90 ? CRITICAL : ACCENT}"/>`,
+const toneOf = (percent: number) =>
+  percent >= 90 ? CRITICAL : percent >= 70 ? WARNING : LOW
+
+const mark = (icon: string, used: number, left: number, colour: string) =>
+  [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${MARK_WIDTH}" height="${MARK_HEIGHT}" viewBox="0 0 ${MARK_WIDTH} ${MARK_HEIGHT}">`,
+    `<g transform="translate(0 4.5)" fill="none" stroke="${QUIET}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${icon}</g>`,
+    `<circle cx="30" cy="11" r="9.4" fill="none" stroke="${TRACK}" stroke-opacity="0.3" stroke-width="2.6"/>`,
+    `<circle cx="30" cy="11" r="9.4" fill="none" stroke="${colour}" stroke-width="2.6" stroke-dasharray="${(RING * used).toFixed(2)} ${RING}" transform="rotate(-90 30 11)"/>`,
+    `<circle cx="30" cy="11" r="3" fill="none" stroke="${TRACK}" stroke-opacity="0.3" stroke-width="6"/>`,
+    `<circle cx="30" cy="11" r="3" fill="none" stroke="${QUIET}" stroke-width="6" stroke-dasharray="${(WEDGE * left).toFixed(2)} ${WEDGE}" transform="rotate(-90 30 11)"/>`,
     '</svg>',
   ].join('')
-}
 
 const sameLimits = (a: readonly Limit[], b: readonly Limit[]) =>
   a.length === b.length &&
@@ -140,58 +170,50 @@ export const register: Register = on => {
 
     const now = await $.clock.now()
     const list = await read($, limits)
-    const session = windowOf(list, 'five_hour')
-    const week = windowOf(list, 'seven_day')
+    const session = windowOf(list, SESSION.kind)
+    const week = windowOf(list, WEEK.kind)
     const isQuiet = (!session && !week) || (await read($, isHidden))
 
     if (isQuiet) {
       return next(e)
     }
 
-    const { Box, Button, Svg, Text } = $.ui.resolve(e)
+    const { Box, Svg, Text } = $.ui.resolve(e)
 
-    const meter = (label: string, limit: Limit) => {
+    const meter = (one: typeof SESSION, limit: Limit) => {
       const isOver = hasReset(limit, now)
       const used = isOver ? 0 : limit.percentUsed
       const percent = Math.round(used)
       const reset = isOver ? 'reset' : remaining(limit.resetsAt, now)
-      const figure = `${percent}%`
+      const left =
+        limit.resetsAt === undefined
+          ? 0
+          : share((Date.parse(limit.resetsAt) - now) / one.span)
+      const colour = toneOf(percent)
+      const alt =
+        reset === ''
+          ? `${one.label}: ${percent}% used`
+          : `${one.label}: ${percent}% used, ${reset}`
 
       return (
         <Box alignItems="center" columnGap={1}>
-          <Text dimColor>{label}</Text>
           <Svg
-            source={bar(used)}
-            alt={`${label}: ${percent}% used`}
-            width={BAR_WIDTH}
-            height={BAR_HEIGHT}
+            source={mark(one.icon, share(used / 100), left, colour)}
+            alt={alt}
+            width={MARK_WIDTH}
+            height={MARK_HEIGHT}
           />
-          {percent >= 90 ? (
-            <Text bold color="error">
-              {figure}
-            </Text>
-          ) : percent >= 75 ? (
-            <Text bold color="warning">
-              {figure}
-            </Text>
-          ) : (
-            <Text bold>{figure}</Text>
-          )}
-          {reset !== '' && <Text dimColor>{`· ${reset}`}</Text>}
+          <Text bold color={colour}>
+            {`${percent}%`}
+          </Text>
         </Box>
       )
     }
 
     return (
       <Box alignItems="center" columnGap={3} flexWrap="wrap">
-        {session && meter('Current session', session)}
-        {week && meter('Weekly', week)}
-        <Button
-          key="hide"
-          role="dismiss"
-          label="Hide usage"
-          onPress={() => update($, isHidden, () => true)}
-        />
+        {session && meter(SESSION, session)}
+        {week && meter(WEEK, week)}
       </Box>
     )
   })
