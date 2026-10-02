@@ -1,0 +1,8 @@
+{
+  "name": "usage-band",
+  "version": "0.1.3",
+  "description": "Shows the current session and weekly usage limits in a band above the prompt of the Claude desktop app",
+  "author": { "name": "erdembircan" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "claude-usage-band",
+  "description": "The usage-band mod, installed from its own repository",
+  "owner": { "name": "erdembircan" },
+  "plugins": [
+    {
+      "name": "usage-band",
+      "source": "./",
+      "description": "Shows the current session and weekly usage limits in a band above the prompt of the Claude desktop app"
+    }
+  ]
+}
