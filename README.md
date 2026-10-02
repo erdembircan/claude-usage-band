@@ -1,16 +1,19 @@
 # usage-band
 
-A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your plan's usage limits in a band above the prompt of the Claude desktop app:
+A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your plan's usage limits in a band above the prompt of the Claude desktop app. Each limit is one small mark and a percentage:
 
 ```text
-Current session ▬▬▬▬────── 42% · resets in 2h 14m    Weekly ▬▬▬▬▬▬▬▬▬─ 92% · resets in 3d 4h    ✕
+(hourglass) (dial) 42%    (calendar) (dial) 92%
 ```
 
-- **Current session** is the five-hour window, **Weekly** the seven-day one.
-- The figure turns to the theme's warning colour from 75% and to its error colour from 90%, where the bar turns red too.
+- The **hourglass** is the current session, the five-hour window. The **calendar** is the weekly one, seven days.
+- The dial's **outer ring** is the share of the limit used. The **wedge in its centre** is the time left before the window resets: full when the window opens, empty at the reset.
+- The ring and the percentage are blue below 70%, amber from 70%, and red from 90%.
 - The band draws on the desktop surface only, and only once a response has reported a limit. An account with no subscription limits (an API key) never sees it.
-- A window past its reset time stays on the band, shown as `0% · reset`, until the next reply reports the new window.
-- The close control hides the band for the session. `/usage-band` shows or hides it.
+- A window past its reset time stays on the band at 0% with an empty wedge, until the next reply reports the new window.
+- `/usage-band` hides the band for the session, or shows it again.
+
+The marks are drawn as images, which cannot read the app's theme, so their colours are mid-tones chosen to hold on both the light and the dark ground.
 
 ## Install
 
@@ -47,6 +50,12 @@ The API types `tsconfig.json` reads live in `.claude/types`, which `/plugin-type
 ## Diagrams
 
 `docs/usage-band-visibility.bpmn` and `docs/usage-band-feed.bpmn` are BPMN 2.0 files: when the band is shown, and how its figures are kept current. `docs/bpmn.html` renders both with [bpmn-js](https://bpmn.io/toolkit/bpmn-js/); any BPMN tool opens the files themselves.
+
+All three are written by `docs/make_bpmn.py`. After changing it, regenerate them:
+
+```bash
+python3 docs/make_bpmn.py docs
+```
 
 ## License
 
