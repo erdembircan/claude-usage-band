@@ -35,14 +35,21 @@ const MEASURE: SessionMeasureInput = {
   changed: ['rateLimits'],
 }
 
-// What the engine does beneath the mod: echo the measurement, draw an empty band.
-const engine = (on: On) => {
+// What sits beneath the mod: the engine, which echoes the measurement and draws
+// an empty band, and, when asked for, another mod that drew in that band.
+const engine = (on: On, { hasOtherBand = false } = {}) => {
   const clock = mock.clock(on, { now: NOW })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
-    const { Box } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
 
-    return <Box />
+    return hasOtherBand ? (
+      <Box>
+        <Text>another band</Text>
+      </Box>
+    ) : (
+      <Box />
+    )
   })
 
   return clock
@@ -211,6 +218,65 @@ test('shows a window past its reset time at 0% with no time left', async (
     true,
   )
   expect(await ui.find({ type: 'Text', text: '92%' })).toBeDefined()
+
+  await ui.unmount()
+})
+
+test('keeps what another mod drew beside the dials on the desktop', async (
+  $,
+  on,
+) => {
+  engine(on, { hasOtherBand: true })
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const drawn = await ui.drawn()
+  const texts = await ui.findAll({ type: 'Text' })
+
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(2)
+  expect(await ui.find({ type: 'Text', text: 'another band' })).toBeDefined()
+  // The dials come first, then what was beneath.
+  expect(texts.map(one => one.text)).toEqual(['42%', '92%', 'another band'])
+  expect('children' in drawn ? drawn.children?.length : 0).toBe(3)
+
+  await ui.unmount()
+})
+
+test('leaves what another mod drew when /usage-band hides the dials', async (
+  $,
+  on,
+) => {
+  engine(on, { hasOtherBand: true })
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  await $.command.run(RUN)
+  await ui.redraw()
+
+  expect(await ui.find({ type: 'Text', text: 'another band' })).toBeDefined()
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+
+  await ui.unmount()
+})
+
+test('passes on what another mod drew in the terminal', async ($, on) => {
+  engine(on, { hasOtherBand: true })
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: 'another band' })).toBeDefined()
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+
+  await ui.unmount()
+})
+
+test('adds nothing for the empty band of the engine', async ($, on) => {
+  engine(on)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const drawn = await ui.drawn()
+
+  expect(drawn.type).toBe('Box')
+  expect('children' in drawn ? drawn.children?.length : 0).toBe(2)
 
   await ui.unmount()
 })

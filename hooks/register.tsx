@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { Limit } from '../types'
 
@@ -93,6 +93,10 @@ const mark = (icon: string, used: number, left: number, colour: string) =>
     '</svg>',
   ].join('')
 
+// The engine's own band is an empty Box; another mod's band has content.
+const hasContent = (drawn: RenderElement) =>
+  drawn.type !== 'Box' || (drawn.children?.length ?? 0) > 0
+
 const sameLimits = (a: readonly Limit[], b: readonly Limit[]) =>
   a.length === b.length &&
   a.every((one, i) => {
@@ -164,8 +168,11 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Another mod may draw the band too: what it drew is kept beside the dials.
+    const beneath = await next(e)
+
     if (e.surface !== 'desktop' || e.props.hasSurvey) {
-      return next(e)
+      return beneath
     }
 
     const now = await $.clock.now()
@@ -175,7 +182,7 @@ export const register: Register = on => {
     const isQuiet = (!session && !week) || (await read($, isHidden))
 
     if (isQuiet) {
-      return next(e)
+      return beneath
     }
 
     const { Box, Svg, Text } = $.ui.resolve(e)
@@ -214,6 +221,7 @@ export const register: Register = on => {
       <Box alignItems="center" columnGap={3} flexWrap="wrap">
         {session && meter(SESSION, session)}
         {week && meter(WEEK, week)}
+        {hasContent(beneath) && beneath}
       </Box>
     )
   })
