@@ -101,7 +101,7 @@ def feed():
     lanes = {'you': [], 'engine': [], 'mod': []}
     ROW = 440          # task row
     END_Y = 620        # collecting line
-    cols = {'toggle': 280, 'start': 680, 'measure': 880, 'poll': 1080, 'tick': 1230}
+    cols = {'toggle': 280, 'start': 680, 'measure': 880, 'tick': 1080}
 
     d.node('dataStoreReference', 'Store_hidden', 'hidden\n(session state)', (350, 520, 50, 50))
     d.node('dataStoreReference', 'Store_limits', 'limits\n(session state)', (755, 520, 50, 50))
@@ -114,8 +114,6 @@ def feed():
     start('Start_session', 'Session starts,\nor /clear', 'engine', cols['start'], 225)
     start('Start_measure', 'Usage measured\nafter a turn', 'engine', cols['measure'], 225,
           '<bpmn:messageEventDefinition/>')
-    start('Start_poll', 'Every\n10 minutes', 'mod', cols['poll'], 335,
-          '<bpmn:timerEventDefinition/>')
     start('Start_tick', 'Every\nminute', 'mod', cols['tick'], 335,
           '<bpmn:timerEventDefinition/>')
 
@@ -129,23 +127,20 @@ def feed():
          writes(d, 'Store_limits', [(720, 480), (765, 520)]))
     step('Task_measure', 'Keep the reported limits', cols['measure'],
          writes(d, 'Store_limits', [(840, 480), (795, 520)]))
-    step('Task_poll', 'Read the limits again', cols['poll'],
-         writes(d, 'Store_limits', [(1010, 480), (805, 540)]))
 
-    d.node('endEvent', 'End_redraw', 'Band is redrawn', ev(1330, END_Y),
-           (1285, END_Y + 22, 90, 14), '<bpmn:signalEventDefinition/>')
+    d.node('endEvent', 'End_redraw', 'Band is redrawn', ev(1180, END_Y),
+           (1135, END_Y + 22, 90, 14), '<bpmn:signalEventDefinition/>')
     lanes['mod'].append('End_redraw')
 
     for key, src, dst, top in [
         ('toggle', 'Start_toggle', 'Task_toggle', 118),
         ('start', 'Start_session', 'Task_start', 243),
         ('measure', 'Start_measure', 'Task_measure', 243),
-        ('poll', 'Start_poll', 'Task_poll', 353),
     ]:
         x = cols[key]
         d.flow(src, dst, [(x, top), (x, ROW - 40)])
-        d.flow(dst, 'End_redraw', [(x, ROW + 40), (x, END_Y), (1312, END_Y)])
-    d.flow('Start_tick', 'End_redraw', [(cols['tick'], 353), (cols['tick'], END_Y), (1312, END_Y)])
+        d.flow(dst, 'End_redraw', [(x, ROW + 40), (x, END_Y), (1162, END_Y)])
+    d.flow('Start_tick', 'End_redraw', [(cols['tick'], 353), (cols['tick'], END_Y), (1162, END_Y)])
 
     lane_xml = ''.join(
         f'<bpmn:lane id="Lane_{key}" name={quoteattr(name)}>'
@@ -153,10 +148,10 @@ def feed():
         + '</bpmn:lane>'
         for key, name in [('you', 'You'), ('engine', 'Claude Code'), ('mod', 'usage-band mod')]
     )
-    d.shape('Participant', (150, 40, 1260, 650), extra=' isHorizontal="true"')
-    d.shape('Lane_you', (180, 40, 1230, 120), extra=' isHorizontal="true"')
-    d.shape('Lane_engine', (180, 160, 1230, 120), extra=' isHorizontal="true"')
-    d.shape('Lane_mod', (180, 280, 1230, 410), extra=' isHorizontal="true"')
+    d.shape('Participant', (150, 40, 1110, 650), extra=' isHorizontal="true"')
+    d.shape('Lane_you', (180, 40, 1080, 120), extra=' isHorizontal="true"')
+    d.shape('Lane_engine', (180, 160, 1080, 120), extra=' isHorizontal="true"')
+    d.shape('Lane_mod', (180, 280, 1080, 410), extra=' isHorizontal="true"')
 
     return (
         HEAD.format(id='Definitions_feed')
