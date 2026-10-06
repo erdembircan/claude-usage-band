@@ -157,11 +157,13 @@ test('shows a move of less than a point after a turn', async ($, on) => {
   await ui.redraw()
 
   expect(await ui.find({ type: 'Text', text: '43%' })).toBeDefined()
+  // A window missing from a reading stays: only a newer reading replaces it.
+  expect(await ui.find({ type: 'Text', text: '92%' })).toBeDefined()
 
   await ui.unmount()
 })
 
-test('reads the figures again on its ten-minute timer', async (
+test('reads the figures when the session starts, and not again on a timer', async (
   $,
   on,
 ) => {
@@ -192,9 +194,9 @@ test('reads the figures again on its ten-minute timer', async (
   await clock.advance(10 * 60_000)
   await ui.redraw()
 
-  // A window missing from a reading stays: only a newer reading replaces it.
-  expect(await ui.find({ type: 'Text', text: '47%' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '92%' })).toBeDefined()
+  // The newer figures wait for the next measurement: no timer fetches them.
+  expect(await ui.find({ type: 'Text', text: '42%' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '47%' })).toBeUndefined()
 
   await ui.unmount()
 })

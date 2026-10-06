@@ -49,9 +49,9 @@ The API types `tsconfig.json` reads live in `.claude/types`, which `/plugin-type
 
 ## Diagrams
 
-`docs/usage-band-visibility.bpmn` and `docs/usage-band-feed.bpmn` are BPMN 2.0 files: when the band is shown, and how its figures are kept current. `docs/bpmn.html` renders both with [bpmn-js](https://bpmn.io/toolkit/bpmn-js/); any BPMN tool opens the files themselves.
+`docs/usage-band-feed.bpmn` is a BPMN 2.0 file: what keeps the band's figures current, and what each redraw of the band changes. `docs/bpmn.html` renders it with [bpmn-js](https://bpmn.io/toolkit/bpmn-js/); any BPMN tool opens the file itself.
 
-All three are written by `docs/make_bpmn.py`. After changing it, regenerate them:
+Both are written by `docs/make_bpmn.py`. After changing it, regenerate them:
 
 ```bash
 python3 docs/make_bpmn.py docs

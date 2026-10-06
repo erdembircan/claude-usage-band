@@ -7,9 +7,6 @@ const limits = atom({ plugin: 'usage-band', key: 'limits' } as const, [])
 const isHidden = atom({ plugin: 'usage-band', key: 'isHidden' } as const, false)
 
 const MINUTE = 60_000
-// The figures arrive with session.measure, after each turn. This slow read is
-// only a safety net for a measurement that never came.
-const POLL = 10 * MINUTE
 
 // One mark per window: an icon for the kind of window, then a dial. The dial's
 // outer ring is the share of the limit used, the wedge in its centre the share
@@ -137,7 +134,6 @@ export const register: Register = on => {
       description: 'Show or hide the usage band above the prompt',
     })
     await refresh($)
-    $.clock.every(POLL, () => void refresh($).catch(() => undefined))
     $.clock.every(MINUTE, () => $.ui.invalidate('ui.render'))
 
     return next(e)
