@@ -1,4 +1,4 @@
-"""Writes the two BPMN 2.0 files of the usage-band mod and the page that renders them."""
+"""Writes the BPMN 2.0 file of the usage-band mod and the page that renders it."""
 import json
 import sys
 from xml.sax.saxutils import escape, quoteattr
@@ -99,12 +99,14 @@ def gw(cx, cy):
 def feed():
     d = Diagram()
     lanes = {'you': [], 'engine': [], 'mod': []}
-    ROW = 440          # task row
-    END_Y = 620        # collecting line
-    cols = {'toggle': 280, 'start': 680, 'measure': 880, 'tick': 1080}
+    ROW = 440          # what each start does to the session state
+    JOB = 850          # the redraw that follows
+    END_Y = 960        # collecting line
+    cols = {'toggle': 280, 'start': 620, 'measure': 820, 'tick': 1180}
+    MID = 720          # where the two readings meet
 
     d.node('dataStoreReference', 'Store_hidden', 'hidden\n(session state)', (350, 520, 50, 50))
-    d.node('dataStoreReference', 'Store_limits', 'limits\n(session state)', (755, 520, 50, 50))
+    d.node('dataStoreReference', 'Store_limits', 'limits\n(session state)', (875, 665, 50, 50))
 
     def start(ref, name, lane, cx, cy, definition=''):
         d.node('startEvent', ref, name, ev(cx, cy), (cx + 26, cy - 20, 120, 40), definition)
@@ -117,30 +119,55 @@ def feed():
     start('Start_tick', 'Every\nminute', 'mod', cols['tick'], 335,
           '<bpmn:timerEventDefinition/>')
 
-    def step(ref, name, cx, body=''):
-        d.node('task', ref, name, task(cx, ROW), None, body)
+    def step(ref, name, cx, cy, body=''):
+        d.node('task', ref, name, task(cx, cy), None, body)
         lanes['mod'].append(ref)
 
-    step('Task_toggle', 'Flip hidden on or off', cols['toggle'],
+    step('Task_toggle', 'Flip hidden on or off', cols['toggle'], ROW,
          writes(d, 'Store_hidden', [(320, 480), (360, 520)]))
-    step('Task_start', 'Add /usage-band and read the limits', cols['start'],
-         writes(d, 'Store_limits', [(720, 480), (765, 520)]))
-    step('Task_measure', 'Keep the reported limits', cols['measure'],
-         writes(d, 'Store_limits', [(840, 480), (795, 520)]))
+    step('Task_start', 'Add /usage-band and read the limits', cols['start'], ROW)
+    step('Task_measure', 'Take the reported limits', cols['measure'], ROW)
 
-    d.node('endEvent', 'End_redraw', 'Band is redrawn', ev(1180, END_Y),
-           (1135, END_Y + 22, 90, 14), '<bpmn:signalEventDefinition/>')
+    d.node('exclusiveGateway', 'Gw_differ', 'Do they differ from the stored figures?',
+           gw(MID, 570), (575, 550, 115, 40))
+    lanes['mod'].append('Gw_differ')
+    d.node('endEvent', 'End_same', 'Band left\nas it is', ev(900, 570), (855, 592, 90, 27))
+    lanes['mod'].append('End_same')
+    step('Task_keep', 'Store the new figures', MID, 690,
+         writes(d, 'Store_limits', [(795, 690), (875, 690)]))
+
+    step('Job_toggle', 'Draw the dials, or leave them out', cols['toggle'], JOB)
+    step('Job_figures', 'Redraw from the new figures', MID, JOB)
+    step('Job_clock', 'Redraw against the clock', cols['tick'], JOB,
+         reads(d, 'Store_limits', [(925, 690), (1140, 690), (1140, JOB - 40)]))
+
+    d.node('endEvent', 'End_redraw', 'Band is redrawn', ev(1620, END_Y),
+           (1575, END_Y + 22, 90, 14), '<bpmn:signalEventDefinition/>')
     lanes['mod'].append('End_redraw')
 
-    for key, src, dst, top in [
-        ('toggle', 'Start_toggle', 'Task_toggle', 118),
-        ('start', 'Start_session', 'Task_start', 243),
-        ('measure', 'Start_measure', 'Task_measure', 243),
-    ]:
+    d.flow('Start_toggle', 'Task_toggle', [(cols['toggle'], 118), (cols['toggle'], ROW - 40)])
+    d.flow('Start_session', 'Task_start', [(cols['start'], 243), (cols['start'], ROW - 40)])
+    d.flow('Start_measure', 'Task_measure', [(cols['measure'], 243), (cols['measure'], ROW - 40)])
+    for key in ('start', 'measure'):
         x = cols[key]
-        d.flow(src, dst, [(x, top), (x, ROW - 40)])
-        d.flow(dst, 'End_redraw', [(x, ROW + 40), (x, END_Y), (1162, END_Y)])
-    d.flow('Start_tick', 'End_redraw', [(cols['tick'], 353), (cols['tick'], END_Y), (1162, END_Y)])
+        d.flow(f'Task_{key}', 'Gw_differ', [(x, ROW + 40), (x, 520), (MID, 520), (MID, 545)])
+    d.flow('Gw_differ', 'End_same', [(MID + 25, 570), (882, 570)], 'no', (765, 550, 14, 14))
+    d.flow('Gw_differ', 'Task_keep', [(MID, 595), (MID, 650)], 'yes', (728, 610, 20, 14))
+    d.flow('Task_toggle', 'Job_toggle', [(cols['toggle'], ROW + 40), (cols['toggle'], JOB - 40)])
+    d.flow('Task_keep', 'Job_figures', [(MID, 730), (MID, JOB - 40)])
+    d.flow('Start_tick', 'Job_clock', [(cols['tick'], 353), (cols['tick'], JOB - 40)])
+    for job, x in [('Job_toggle', cols['toggle']), ('Job_figures', MID), ('Job_clock', cols['tick'])]:
+        d.flow(job, 'End_redraw', [(x, JOB + 40), (x, END_Y), (1602, END_Y)])
+
+    d.note('Note_figures',
+           'The ring and the percentage take the new share used. The wedge takes the new reset time.',
+           (830, 820, 240, 60), 'Job_figures', [(795, JOB), (830, JOB)])
+    d.note('Note_clock',
+           'Reads nothing new: the stored figures, set against the time now.\n'
+           '1. The wedge shrinks as the window runs out.\n'
+           '2. A window past its reset time is drawn at 0%.\n'
+           'Nothing else on the band moves.',
+           (1290, 790, 270, 120), 'Job_clock', [(1255, JOB), (1290, JOB)])
 
     lane_xml = ''.join(
         f'<bpmn:lane id="Lane_{key}" name={quoteattr(name)}>'
@@ -148,10 +175,10 @@ def feed():
         + '</bpmn:lane>'
         for key, name in [('you', 'You'), ('engine', 'Claude Code'), ('mod', 'usage-band mod')]
     )
-    d.shape('Participant', (150, 40, 1110, 650), extra=' isHorizontal="true"')
-    d.shape('Lane_you', (180, 40, 1080, 120), extra=' isHorizontal="true"')
-    d.shape('Lane_engine', (180, 160, 1080, 120), extra=' isHorizontal="true"')
-    d.shape('Lane_mod', (180, 280, 1080, 410), extra=' isHorizontal="true"')
+    d.shape('Participant', (150, 40, 1530, 1040), extra=' isHorizontal="true"')
+    d.shape('Lane_you', (180, 40, 1500, 120), extra=' isHorizontal="true"')
+    d.shape('Lane_engine', (180, 160, 1500, 120), extra=' isHorizontal="true"')
+    d.shape('Lane_mod', (180, 280, 1500, 800), extra=' isHorizontal="true"')
 
     return (
         HEAD.format(id='Definitions_feed')
@@ -168,75 +195,6 @@ def feed():
     )
 
 
-# --------------------------------------------------------------- visibility
-def visibility():
-    d = Diagram()
-    Y = 230            # main line
-    OUT_Y = 400        # "not shown" ends
-
-    d.node('startEvent', 'Start_draw', 'Band is about\nto be drawn', ev(200, Y),
-           (155, Y + 24, 90, 27), '<bpmn:signalEventDefinition/>')
-
-    def decide(ref, name, cx):
-        d.node('exclusiveGateway', ref, name, gw(cx, Y), (cx - 70, Y - 80, 140, 40))
-
-    def stop(ref, name, cx):
-        d.node('endEvent', ref, name, ev(cx, OUT_Y), (cx - 60, OUT_Y + 24, 120, 27))
-
-    decide('Gw_surface', 'In the desktop app?', 340)
-    decide('Gw_survey', 'Is a Claude Code survey using the band?', 510)
-    d.node('dataStoreReference', 'Store_limits', 'limits\n(session state)', (675, 50, 50, 50), (735, 62, 80, 27))
-    d.node('task', 'Task_read', 'Take the stored limits; a window past its reset time counts as 0%',
-           task(700, Y, 170), None, reads(d, 'Store_limits', [(700, 100), (700, Y - 40)]))
-    decide('Gw_reading', 'Any session or weekly reading stored?', 900)
-    d.node('dataStoreReference', 'Store_hidden', 'hidden\n(session state)', (1045, 50, 50, 50), (1105, 62, 80, 27))
-    d.node('task', 'Task_hidden', 'Check the hidden flag', task(1070, Y, 130), None,
-           reads(d, 'Store_hidden', [(1070, 100), (1070, Y - 40)]))
-    decide('Gw_hidden', 'Hidden by you?', 1230)
-    d.node('task', 'Task_build', 'Build the row: a mark and a percentage per window', task(1400, Y, 150))
-    d.node('endEvent', 'End_shown', 'Usage row shown', ev(1560, Y), (1515, Y + 24, 90, 14))
-
-    stop('End_surface', 'Not shown', 340)
-    stop('End_survey', 'Not shown', 510)
-    stop('End_reading', 'Not shown', 900)
-    stop('End_hidden', 'Not shown', 1230)
-
-    d.flow('Start_draw', 'Gw_surface', [(218, Y), (315, Y)])
-    d.flow('Gw_surface', 'Gw_survey', [(365, Y), (485, Y)], 'yes', (395, Y - 20, 20, 14))
-    d.flow('Gw_surface', 'End_surface', [(340, Y + 25), (340, OUT_Y - 18)], 'no', (348, Y + 40, 14, 14))
-    d.flow('Gw_survey', 'Task_read', [(535, Y), (615, Y)], 'no', (560, Y - 20, 14, 14))
-    d.flow('Gw_survey', 'End_survey', [(510, Y + 25), (510, OUT_Y - 18)], 'yes', (518, Y + 40, 20, 14))
-    d.flow('Task_read', 'Gw_reading', [(785, Y), (875, Y)])
-    d.flow('Gw_reading', 'Task_hidden', [(925, Y), (1005, Y)], 'yes', (950, Y - 20, 20, 14))
-    d.flow('Gw_reading', 'End_reading', [(900, Y + 25), (900, OUT_Y - 18)], 'no', (908, Y + 40, 14, 14))
-    d.flow('Task_hidden', 'Gw_hidden', [(1135, Y), (1205, Y)])
-    d.flow('Gw_hidden', 'Task_build', [(1255, Y), (1325, Y)], 'no', (1280, Y - 20, 14, 14))
-    d.flow('Gw_hidden', 'End_hidden', [(1230, Y + 25), (1230, OUT_Y - 18)], 'yes', (1238, Y + 40, 20, 14))
-    d.flow('Task_build', 'End_shown', [(1475, Y), (1542, Y)])
-
-    d.note('Note_surface', 'The terminal and other apps never show it.',
-           (250, 490, 180, 40), 'End_surface', [(340, OUT_Y + 60), (340, 490)])
-    d.note('Note_survey', 'Comes back by itself when the survey closes.',
-           (450, 490, 180, 40), 'End_survey', [(510, OUT_Y + 60), (520, 490)])
-    d.note('Note_reading',
-           'No reading in two cases:\n'
-           '1. New session: Claude Code learns the limits from a reply, so nothing shows until the first message is answered.\n'
-           '2. The account has no plan limits.',
-           (720, 490, 360, 100), 'End_reading', [(900, OUT_Y + 60), (900, 490)])
-    d.note('Note_hidden', 'Until /usage-band is typed again, /clear, or a new session.',
-           (1140, 490, 200, 54), 'End_hidden', [(1230, OUT_Y + 60), (1230, 490)])
-
-    return (
-        HEAD.format(id='Definitions_visibility')
-        + '<bpmn:process id="Process_visibility" name="Is the usage band shown?" isExecutable="false">'
-        + ''.join(d.sem)
-        + '</bpmn:process>\n'
-        + '<bpmndi:BPMNDiagram id="Diagram_visibility"><bpmndi:BPMNPlane id="Plane_visibility" bpmnElement="Process_visibility">'
-        + ''.join(d.di)
-        + '</bpmndi:BPMNPlane></bpmndi:BPMNDiagram>\n</bpmn:definitions>\n'
-    )
-
-
 PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -246,13 +204,10 @@ PAGE = """<!doctype html>
   body { margin: 0; padding: 16px 24px 32px; font: 14px/1.4 -apple-system, "Segoe UI", sans-serif; background: #fff; color: #222; }
   h2 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; }
   .canvas { border: 1px solid #ccc; }
-  #visibility { height: 640px; }
-  #feed { height: 700px; }
+  #feed { height: 940px; }
 </style>
 </head>
 <body>
-<h2>Is the usage band shown?</h2>
-<div class="canvas" id="visibility"></div>
 <h2>Keeping the figures current</h2>
 <div class="canvas" id="feed"></div>
 <script src="https://unpkg.com/bpmn-js@17.11.1/dist/bpmn-navigated-viewer.production.min.js"></script>
@@ -281,8 +236,7 @@ PAGE = """<!doctype html>
 </html>
 """
 
-files = {'visibility': visibility(), 'feed': feed()}
-open(f'{OUT}/usage-band-visibility.bpmn', 'w').write(files['visibility'])
+files = {'feed': feed()}
 open(f'{OUT}/usage-band-feed.bpmn', 'w').write(files['feed'])
 open(f'{OUT}/bpmn.html', 'w').write(
     PAGE.replace('__DIAGRAMS__', json.dumps(files).replace('</', '<\\/'))
