@@ -1,7 +1,7 @@
 {
   "name": "usage-band",
-  "version": "0.2.2",
-  "description": "Shows the current session and weekly usage limits in a band above the prompt of the Claude desktop app",
+  "version": "0.3.0",
+  "description": "Shows the current session and weekly usage limits in a band above the prompt of the Claude desktop app, and locks a working session against Escape and stray prompts",
   "author": { "name": "erdembircan" },
   "license": "MIT",
   "types": "./types/index.d.ts"
