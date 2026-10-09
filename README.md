@@ -63,7 +63,11 @@ claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 ```
 
-The API types `tsconfig.json` reads live in `.claude/types`, which `/plugin-types` writes for the build you run.
+A load with `--plugin-dir` also writes the API types of the build you run to `.claude-plugin/types`, which git ignores. `tsconfig.json` extends the one laid there, so after a first load:
+
+```bash
+tsc -p .
+```
 
 ## Diagrams
 
