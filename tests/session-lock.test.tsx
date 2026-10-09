@@ -229,7 +229,6 @@ test('lets through what is not the person typing', async ($, on) => {
     wait: false,
     origin: { kind: 'plugin', name: 'other' },
   })
-  await $.prompt.submit(typed('<ci-monitor-event>a check failed</ci-monitor-event>'))
 
   expect(desk.entered).toEqual([
     'task-notification',
@@ -239,7 +238,6 @@ test('lets through what is not the person typing', async ($, on) => {
     'unclassified',
     'auto-continuation',
     'from a plugin',
-    '<ci-monitor-event>a check failed</ci-monitor-event>',
   ])
 })
 

@@ -75,17 +75,15 @@ const WATCH = 1_000
 // A prompt of the person's own, by where it came from: typed here (a host such
 // as the desktop app submits it as `sdk`), sent over Remote Control, or pinged
 // from Slack. Every other prompt passes a locked session: a background task or
-// agent reporting back, a schedule, another session, a plugin.
+// agent reporting back, a schedule, another session, a plugin, and what the
+// desktop app sends of its own accord, such as a failed check on a pull request
+// it watches, which it stamps `auto-continuation`.
 const PERSONS: readonly PromptOrigin['kind'][] = [
   'composer',
   'sdk',
   'bridge',
   'slack-ping',
 ]
-// The desktop app wakes a session with messages of its own, such as a failed
-// check on a pull request it watches. They arrive as the host's, like typing,
-// and are told apart by their envelope.
-const APP_EVENT = /^\s*<(?:ci-monitor-event|side-sessions-event)[\s>]/
 
 const LOCK_ON = 'Session lock: on'
 const LOCK_OFF = 'Session lock: off'
@@ -194,8 +192,7 @@ const refresh = async ($: EngineInterface) => {
   await keep($, rateLimits)
 }
 
-const isPersons = (origin: PromptOrigin, text: string) =>
-  PERSONS.includes(origin.kind) && !APP_EVENT.test(text)
+const isPersons = (origin: PromptOrigin) => PERSONS.includes(origin.kind)
 
 // A draft in the prompt box is set aside while locked: over one the surface
 // refuses the pane the keyboard, and Escape in the box stops the turn.
@@ -363,7 +360,7 @@ export const register: Register = on => {
 
   // A dead gate must never swallow a prompt: it fails open.
   on('prompt.submit', async ($, e, next) => {
-    if (!(await read($, isLocked)) || !isPersons(e.origin, e.text)) {
+    if (!(await read($, isLocked)) || !isPersons(e.origin)) {
       return next(e)
     }
 
