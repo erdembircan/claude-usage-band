@@ -143,7 +143,7 @@ const engine = (
   return { clock, desk }
 }
 
-test('draws a lock beside the dials, and a press locks the session', async (
+test('draws a padlock beside the dials, and a press on it locks the session', async (
   $,
   on,
 ) => {
@@ -151,17 +151,33 @@ test('draws a lock beside the dials, and a press locks the session', async (
   await $.session.measure(MEASURE)
   const band = await $.ui.mount(BAND)
 
-  expect((await band.find({ type: 'Button', key: 'lock' }))?.text).toBe('Lock')
-  expect((await band.findAll({ type: 'Svg' }))[2]?.props.alt).toBe(
-    'Session lock: off',
-  )
+  // The padlock is the whole control: the Button draws no text of its own, and
+  // sits in a Box laid over the padlock, where a press on the padlock lands.
+  expect(
+    (await band.find({ type: 'Button', key: 'lock' }))?.text.trim(),
+  ).toBe('')
+  expect(await band.drawn()).toMatchObject({
+    children: [
+      {},
+      {},
+      {
+        children: [
+          { type: 'Svg', props: { alt: 'Session lock: off' } },
+          {
+            type: 'Box',
+            props: { position: 'absolute' },
+            children: [{ type: 'Button', props: { key: 'lock' } }],
+          },
+        ],
+      },
+    ],
+  })
 
   await band.press({ key: 'lock' })
   await band.redraw()
   const padlock = (await band.findAll({ type: 'Svg' }))[2]
 
   expect(desk.opens).toEqual([OPEN])
-  expect((await band.find({ type: 'Button', key: 'lock' }))?.text).toBe('Unlock')
   expect(padlock?.props.alt).toBe('Session lock: on')
   expect(String(padlock?.props.source).includes(`stroke="${LOW}"`)).toBe(true)
 

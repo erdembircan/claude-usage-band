@@ -44,6 +44,15 @@ const PADLOCK_BODY = '<rect x="2.6" y="5.9" width="7.8" height="5.5" rx="1.4"/>'
 const SHACKLE_OPEN = 'M4.3 5.9V3.3a2.2 2.2 0 0 1 4.4 0'
 const SHACKLE_SHUT = 'M4.3 5.9V4.2a2.2 2.2 0 0 1 4.4 0v1.7'
 const KEYHOLE = 'M6.5 8.2v.9'
+// In the band the padlock is the lock's whole control. A Button's face is text
+// and an Svg takes no press, so a Button with a blank label is laid over the
+// padlock and takes the press for it. The label is an en space: it draws
+// nothing, and keeps the Button about as wide as it is tall.
+const BLANK = '\u2002'
+// How far the Box that holds the Button reaches past the padlock on each side,
+// in columns. The desktop draws a Button no wider than the Box it is in, and
+// this Button is wider than the padlock.
+const REACH = 2
 
 const SESSION = {
   kind: 'five_hour',
@@ -495,23 +504,31 @@ export const register: Register = on => {
       <Box alignItems="center" columnGap={3} flexWrap="wrap">
         {session && meter(SESSION, session)}
         {week && meter(WEEK, week)}
-        <Box alignItems="center" columnGap={1}>
+        <Box>
           <Svg
             source={padlock(isShut)}
             alt={isShut ? LOCK_ON : LOCK_OFF}
             width={LOCK_WIDTH}
             height={MARK_HEIGHT}
           />
-          <Button
-            key="lock"
-            plain
-            dimColor
-            onPress={async () =>
-              (await read($, isLocked)) ? release($) : engage($)
-            }
+          <Box
+            position="absolute"
+            top={0}
+            bottom={0}
+            left={-REACH}
+            right={-REACH}
+            alignItems="center"
+            justifyContent="center"
           >
-            {isShut ? 'Unlock' : 'Lock'}
-          </Button>
+            <Button
+              key="lock"
+              label={BLANK}
+              plain
+              onPress={async () =>
+                (await read($, isLocked)) ? release($) : engage($)
+              }
+            />
+          </Box>
         </Box>
         {hasContent(beneath) && beneath}
       </Box>
