@@ -431,15 +431,6 @@ export const register: Register = on => {
           {sign}
           <Text bold>Session locked</Text>
         </Box>
-        <Text dimColor>
-          Escape cannot stop the session while this pane has the keyboard, and
-          the pane takes the keyboard back when you click away.
-        </Text>
-        <Text dimColor>
-          The prompt box takes no typing while locked. A draft that was already
-          in it is set aside, and returns when you unlock. The Stop button
-          still works.
-        </Text>
         <Box>
           <Button key="unlock" variant="primary" onPress={() => release($)}>
             Unlock

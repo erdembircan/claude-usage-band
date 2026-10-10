@@ -289,7 +289,10 @@ test('draws the pane, and its button unlocks', async ($, on) => {
   )
   const pane = await $.ui.mount(LOCK_PANE)
 
-  expect(await pane.find({ type: 'Text', text: 'Session locked' })).toBeDefined()
+  // The pane carries its title and its button, and nothing else to read.
+  expect((await pane.findAll({ type: 'Text' })).map(one => one.text)).toEqual([
+    'Session locked',
+  ])
   expect((await pane.find({ type: 'Svg' }))?.props.alt).toBe('Session lock: on')
   expect((await pane.find({ type: 'Button', key: 'unlock' }))?.text).toBe(
     'Unlock',
