@@ -1,10 +1,18 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement } from 'claude-code'
+import type {
+  EngineInterface,
+  PromptOrigin,
+  Register,
+  RenderElement,
+  Timer,
+} from 'claude-code'
 
 import type { Limit } from '../types'
 
 const limits = atom({ plugin: 'usage-band', key: 'limits' } as const, [])
 const isHidden = atom({ plugin: 'usage-band', key: 'isHidden' } as const, false)
+const isLocked = atom({ plugin: 'usage-band', key: 'isLocked' } as const, false)
+const draft = atom({ plugin: 'usage-band', key: 'draft' } as const, '')
 
 const MINUTE = 60_000
 
@@ -29,6 +37,23 @@ const HOURGLASS =
 const CALENDAR =
   '<rect x="1.8" y="2.8" width="9.4" height="8.4" rx="1.6"/><path d="M1.8 5.7h9.4M4.4 1.5v2.4M8.6 1.5v2.4"/>'
 
+// The padlock is drawn like the window icons, on its own: open and quiet while
+// the session is free, shut and in the band's blue while it is locked.
+const LOCK_WIDTH = 13
+const PADLOCK_BODY = '<rect x="2.6" y="5.9" width="7.8" height="5.5" rx="1.4"/>'
+const SHACKLE_OPEN = 'M4.3 5.9V3.3a2.2 2.2 0 0 1 4.4 0'
+const SHACKLE_SHUT = 'M4.3 5.9V4.2a2.2 2.2 0 0 1 4.4 0v1.7'
+const KEYHOLE = 'M6.5 8.2v.9'
+// In the band the padlock is the lock's whole control. A Button's face is text
+// and an Svg takes no press, so a Button with a blank label is laid over the
+// padlock and takes the press for it. The label is an en space: it draws
+// nothing, and keeps the Button about as wide as it is tall.
+const BLANK = '\u2002'
+// How far the Box that holds the Button reaches past the padlock on each side,
+// in columns. The desktop draws a Button no wider than the Box it is in, and
+// this Button is wider than the padlock.
+const REACH = 2
+
 const SESSION = {
   kind: 'five_hour',
   label: 'Current session',
@@ -41,6 +66,45 @@ const WEEK = {
   icon: CALENDAR,
   span: 7 * 24 * 60 * MINUTE,
 }
+
+// The lock is one pane. `focus` asks the surface for the keyboard. Under
+// `closeOnEscape` Escape is the person's close of the pane, which the ui.close
+// hook refuses while locked: the key ends there and never stops the turn. Left
+// out, Escape would hand the keyboard back to the prompt box instead.
+const PANE = 'usage-band-lock'
+const OPEN = {
+  id: PANE,
+  title: 'Session lock',
+  focus: true,
+  closeOnEscape: true,
+} as const
+// How often a locked session checks that the pane still has the keyboard.
+const WATCH = 250
+
+// A prompt of the person's own, by where it came from: typed here (a host such
+// as the desktop app submits it as `sdk`), sent over Remote Control, or pinged
+// from Slack. Every other prompt passes a locked session: a background task or
+// agent reporting back, a schedule, another session, a plugin, and what the
+// desktop app sends of its own accord, such as a failed check on a pull request
+// it watches, which it stamps `auto-continuation`.
+const PERSONS: readonly PromptOrigin['kind'][] = [
+  'composer',
+  'sdk',
+  'bridge',
+  'slack-ping',
+]
+
+const LOCK_ON = 'Session lock: on'
+const LOCK_OFF = 'Session lock: off'
+const LOCKED = 'Session locked.'
+const UNLOCKED = 'Session unlocked.'
+const NEEDS_DESKTOP = 'The session lock needs the Claude desktop app.'
+const USAGE = 'Usage: /usage-band, /usage-band lock or /usage-band unlock.'
+const REFUSAL =
+  'The session is locked, so this prompt was not sent. Unlock it first: press Unlock, or run /usage-band unlock.'
+const STAYS = 'the session is locked'
+const NOT_RETURNED =
+  'usage-band: your draft could not be put back. Run /usage-band unlock to try again.'
 
 const windowOf = (list: readonly Limit[], kind: string) =>
   list.find(one => one.kind === kind) ??
@@ -90,6 +154,16 @@ const mark = (icon: string, used: number, left: number, colour: string) =>
     '</svg>',
   ].join('')
 
+const padlock = (isShut: boolean) =>
+  [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${LOCK_WIDTH}" height="${MARK_HEIGHT}" viewBox="0 0 ${LOCK_WIDTH} ${MARK_HEIGHT}">`,
+    `<g transform="translate(0 4.5)" fill="none" stroke="${isShut ? LOW : QUIET}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">`,
+    PADLOCK_BODY,
+    `<path d="${isShut ? SHACKLE_SHUT : SHACKLE_OPEN}${KEYHOLE}"/>`,
+    '</g>',
+    '</svg>',
+  ].join('')
+
 // The engine's own band is an empty Box; another mod's band has content.
 const hasContent = (drawn: RenderElement) =>
   drawn.type !== 'Box' || (drawn.children?.length ?? 0) > 0
@@ -127,14 +201,128 @@ const refresh = async ($: EngineInterface) => {
   await keep($, rateLimits)
 }
 
+const isPersons = (origin: PromptOrigin) => PERSONS.includes(origin.kind)
+
+// Empties the prompt box and answers what was in it. Over text there the
+// surface refuses the pane the keyboard, and Escape in the box stops the turn.
+const emptied = async ($: EngineInterface) => {
+  const { text } = await $.prompt.read()
+
+  if (text.trim() === '') {
+    return ''
+  }
+
+  const { isFilled } = await $.prompt.fill({ text: '', mode: 'replace' })
+
+  return isFilled ? text : ''
+}
+
+// The timer and the two flags live as long as the module: a reload starts them
+// over, and the session's start puts the lock back.
+let watch: Timer | undefined
+let isHolding = false
+let hadKeyboard = false
+
+// Gives the pane the keyboard while the session is locked: opens it when it is
+// gone, and asks for the keyboard again when the person has clicked away.
+const hold = async ($: EngineInterface) => {
+  if (isHolding || !(await read($, isLocked))) {
+    return
+  }
+
+  isHolding = true
+
+  try {
+    const pane = (await $.ui.panes()).find(one => one.id === PANE)
+
+    if (pane?.isFocused) {
+      return
+    }
+
+    // What has landed in the box while locked was not meant for it: it goes.
+    await emptied($)
+    await $.ui.open(OPEN)
+  } finally {
+    isHolding = false
+  }
+}
+
+const disarm = () => {
+  watch?.cancel()
+  watch = undefined
+}
+
+const arm = ($: EngineInterface) => {
+  disarm()
+  watch = $.clock.every(WATCH, () => void hold($))
+}
+
+const engage = async ($: EngineInterface) => {
+  if (!(await read($, isLocked))) {
+    // The draft in the box as the lock goes on is the person's: it is set
+    // aside, and comes back on unlock.
+    const text = await emptied($)
+
+    if (text !== '') {
+      await update($, draft, () => text)
+    }
+
+    await update($, isLocked, () => true)
+  }
+
+  arm($)
+  await hold($)
+}
+
+const release = async ($: EngineInterface) => {
+  await update($, isLocked, () => false)
+  disarm()
+  await $.ui.close({ id: PANE })
+
+  const text = await read($, draft)
+
+  if (text === '') {
+    return
+  }
+
+  const { isFilled } = await $.prompt.fill({ text, mode: 'append' })
+
+  if (isFilled) {
+    await update($, draft, () => '')
+  } else {
+    $.ui.toast(NOT_RETURNED)
+  }
+}
+
+// A reload keeps $.state and drops the timer; /clear, /resume and /branch
+// reset $.state and may leave the pane up.
+const settle = async ($: EngineInterface) => {
+  if (await read($, isLocked)) {
+    arm($)
+    await hold($)
+
+    return
+  }
+
+  disarm()
+
+  if ((await $.ui.panes()).some(one => one.id === PANE)) {
+    await $.ui.close({ id: PANE })
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'usage-band',
-      description: 'Show or hide the usage band above the prompt',
+      description: 'Show or hide the usage band, or lock and unlock the session',
+      argumentHint: '[lock|unlock]',
+      // A session is locked, and unlocked, while it works.
+      immediate: true,
     })
     await refresh($)
     $.clock.every(MINUTE, () => $.ui.invalidate('ui.render'))
+    await settle($)
 
     return next(e)
   })
@@ -145,6 +333,7 @@ export const register: Register = on => {
     { source: ['clear', 'resume', 'fork'] },
     async ($, e, next) => {
       await refresh($)
+      await settle($)
 
       return next(e)
     },
@@ -157,10 +346,107 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'usage-band' }, async $ => {
+  on('command.run', { command: 'usage-band' }, async ($, e) => {
+    const wanted = e.args.trim()
+
+    if (wanted === 'lock') {
+      if (!(await $.session.surfaces()).includes('desktop')) {
+        return { text: NEEDS_DESKTOP }
+      }
+
+      await engage($)
+
+      return { text: LOCKED }
+    }
+
+    if (wanted === 'unlock') {
+      await release($)
+
+      return { text: UNLOCKED }
+    }
+
+    if (wanted !== '') {
+      return { text: USAGE }
+    }
+
     const hidden = await update($, isHidden, value => !value)
 
     return { text: hidden ? 'Usage band hidden.' : 'Usage band shown.' }
+  })
+
+  // The prompt box takes no typing while locked: every edit is answered with an
+  // empty box, and the pane asks for the keyboard back.
+  on('prompt.edit', async ($, e, next) => {
+    if (!(await read($, isLocked))) {
+      return next(e)
+    }
+
+    void hold($)
+
+    return { text: '', cursor: 0 }
+  }).catch((_, e, next) => next(e))
+
+  // A prompt that reaches a locked session another way is refused, and not
+  // kept. A dead gate must never swallow a prompt: it fails open.
+  on('prompt.submit', async ($, e, next) => {
+    if (!(await read($, isLocked)) || !isPersons(e.origin)) {
+      return next(e)
+    }
+
+    // The prompt box has just emptied, so the pane can have the keyboard back.
+    await $.ui.open(OPEN)
+
+    return { drop: REFUSAL }
+  }).catch((_, e, next) => next(e))
+
+  // While locked the pane closes for nobody. Escape and the close mark are the
+  // person's close, and refusing it is what keeps Escape from stopping the turn.
+  on('ui.close', { id: PANE }, async ($, e, next) =>
+    (await read($, isLocked)) ? { deny: STAYS } : next(e),
+  ).catch((_, e, next) => next(e))
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!(await read($, isLocked))) {
+      return next(e)
+    }
+
+    // The keyboard has just left the pane. A drawing may not write, so the
+    // asking waits for the draw to end.
+    if (hadKeyboard && !e.props.isFocused) {
+      $.clock.after(0, () => void hold($))
+    }
+
+    hadKeyboard = e.props.isFocused
+
+    const { Box, Button, Text } = $.ui.resolve(e)
+    let sign: RenderElement | null = null
+
+    // The padlock is an Svg, which the terminal does not draw.
+    if (e.surface === 'desktop') {
+      const { Svg } = $.ui.resolve(e)
+      sign = (
+        <Svg
+          source={padlock(true)}
+          alt={LOCK_ON}
+          width={LOCK_WIDTH}
+          height={MARK_HEIGHT}
+        />
+      )
+    }
+
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Box alignItems="center" columnGap={1}>
+          {sign}
+          <Text bold>Session locked</Text>
+        </Box>
+        <Box>
+          <Button key="unlock" variant="primary" onPress={() => release($)}>
+            Unlock
+          </Button>
+        </Box>
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -181,7 +467,8 @@ export const register: Register = on => {
       return beneath
     }
 
-    const { Box, Svg, Text } = $.ui.resolve(e)
+    const isShut = await read($, isLocked)
+    const { Box, Button, Svg, Text } = $.ui.resolve(e)
 
     const meter = (one: typeof SESSION, limit: Limit) => {
       const isOver = hasReset(limit, now)
@@ -217,6 +504,32 @@ export const register: Register = on => {
       <Box alignItems="center" columnGap={3} flexWrap="wrap">
         {session && meter(SESSION, session)}
         {week && meter(WEEK, week)}
+        <Box>
+          <Svg
+            source={padlock(isShut)}
+            alt={isShut ? LOCK_ON : LOCK_OFF}
+            width={LOCK_WIDTH}
+            height={MARK_HEIGHT}
+          />
+          <Box
+            position="absolute"
+            top={0}
+            bottom={0}
+            left={-REACH}
+            right={-REACH}
+            alignItems="center"
+            justifyContent="center"
+          >
+            <Button
+              key="lock"
+              label={BLANK}
+              plain
+              onPress={async () =>
+                (await read($, isLocked)) ? release($) : engage($)
+              }
+            />
+          </Box>
+        </Box>
         {hasContent(beneath) && beneath}
       </Box>
     )

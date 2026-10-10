@@ -66,7 +66,8 @@ test('draws one mark and one percentage per window on the desktop', async (
   const session = String(svgs[0]?.props.source)
   const week = String(svgs[1]?.props.source)
 
-  expect(svgs.length).toBe(2)
+  // Two dials, then the padlock of the session lock.
+  expect(svgs.length).toBe(3)
   expect(svgs[0]?.props.alt).toBe('Current session: 42% used, resets in 2h 14m')
   expect(svgs[1]?.props.alt).toBe('Weekly: 92% used, resets in 3d 4h')
   // The outer ring is the share used, the wedge the share of time left.
@@ -79,7 +80,9 @@ test('draws one mark and one percentage per window on the desktop', async (
     CRITICAL,
   )
   expect(await ui.find({ type: 'Text', text: 'Current session' })).toBeUndefined()
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.key)).toEqual([
+    'lock',
+  ])
 
   await ui.unmount()
 })
@@ -171,6 +174,7 @@ test('reads the figures when the session starts, and not again on a timer', asyn
   let current: SessionRateLimit[] = [...MEASURE.rateLimits]
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.panes', () => ({ value: [] }))
   on('session.usage', () => ({
     value: {
       startedAt: NOW,
@@ -234,11 +238,11 @@ test('keeps what another mod drew beside the dials on the desktop', async (
   const drawn = await ui.drawn()
   const texts = await ui.findAll({ type: 'Text' })
 
-  expect((await ui.findAll({ type: 'Svg' })).length).toBe(2)
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(3)
   expect(await ui.find({ type: 'Text', text: 'another band' })).toBeDefined()
-  // The dials come first, then what was beneath.
+  // The dials and the lock come first, then what was beneath.
   expect(texts.map(one => one.text)).toEqual(['42%', '92%', 'another band'])
-  expect('children' in drawn ? drawn.children?.length : 0).toBe(3)
+  expect('children' in drawn ? drawn.children?.length : 0).toBe(4)
 
   await ui.unmount()
 })
@@ -278,7 +282,7 @@ test('adds nothing for the empty band of the engine', async ($, on) => {
   const drawn = await ui.drawn()
 
   expect(drawn.type).toBe('Box')
-  expect('children' in drawn ? drawn.children?.length : 0).toBe(2)
+  expect('children' in drawn ? drawn.children?.length : 0).toBe(3)
 
   await ui.unmount()
 })
