@@ -12,7 +12,7 @@ import type { Limit } from '../types'
 const limits = atom({ plugin: 'usage-band', key: 'limits' } as const, [])
 const isHidden = atom({ plugin: 'usage-band', key: 'isHidden' } as const, false)
 const isLocked = atom({ plugin: 'usage-band', key: 'isLocked' } as const, false)
-const held = atom({ plugin: 'usage-band', key: 'held' } as const, [])
+const draft = atom({ plugin: 'usage-band', key: 'draft' } as const, '')
 
 const MINUTE = 60_000
 
@@ -70,7 +70,7 @@ const OPEN = {
   closeOnEscape: true,
 } as const
 // How often a locked session checks that the pane still has the keyboard.
-const WATCH = 1_000
+const WATCH = 250
 
 // A prompt of the person's own, by where it came from: typed here (a host such
 // as the desktop app submits it as `sdk`), sent over Remote Control, or pinged
@@ -92,10 +92,10 @@ const UNLOCKED = 'Session unlocked.'
 const NEEDS_DESKTOP = 'The session lock needs the Claude desktop app.'
 const USAGE = 'Usage: /usage-band, /usage-band lock or /usage-band unlock.'
 const REFUSAL =
-  'The session is locked. Your prompt is kept and returns to the prompt box when you unlock: press Unlock, or run /usage-band unlock.'
+  'The session is locked, so this prompt was not sent. Unlock it first: press Unlock, or run /usage-band unlock.'
 const STAYS = 'the session is locked'
 const NOT_RETURNED =
-  'usage-band: your held text could not be put back. Run /usage-band unlock to try again.'
+  'usage-band: your draft could not be put back. Run /usage-band unlock to try again.'
 
 const windowOf = (list: readonly Limit[], kind: string) =>
   list.find(one => one.kind === kind) ??
@@ -194,20 +194,18 @@ const refresh = async ($: EngineInterface) => {
 
 const isPersons = (origin: PromptOrigin) => PERSONS.includes(origin.kind)
 
-// A draft in the prompt box is set aside while locked: over one the surface
-// refuses the pane the keyboard, and Escape in the box stops the turn.
-const park = async ($: EngineInterface) => {
+// Empties the prompt box and answers what was in it. Over text there the
+// surface refuses the pane the keyboard, and Escape in the box stops the turn.
+const emptied = async ($: EngineInterface) => {
   const { text } = await $.prompt.read()
 
   if (text.trim() === '') {
-    return
+    return ''
   }
 
   const { isFilled } = await $.prompt.fill({ text: '', mode: 'replace' })
 
-  if (isFilled) {
-    await update($, held, texts => [...texts, text])
-  }
+  return isFilled ? text : ''
 }
 
 // The timer and the two flags live as long as the module: a reload starts them
@@ -232,7 +230,8 @@ const hold = async ($: EngineInterface) => {
       return
     }
 
-    await park($)
+    // What has landed in the box while locked was not meant for it: it goes.
+    await emptied($)
     await $.ui.open(OPEN)
   } finally {
     isHolding = false
@@ -250,7 +249,18 @@ const arm = ($: EngineInterface) => {
 }
 
 const engage = async ($: EngineInterface) => {
-  await update($, isLocked, () => true)
+  if (!(await read($, isLocked))) {
+    // The draft in the box as the lock goes on is the person's: it is set
+    // aside, and comes back on unlock.
+    const text = await emptied($)
+
+    if (text !== '') {
+      await update($, draft, () => text)
+    }
+
+    await update($, isLocked, () => true)
+  }
+
   arm($)
   await hold($)
 }
@@ -260,19 +270,16 @@ const release = async ($: EngineInterface) => {
   disarm()
   await $.ui.close({ id: PANE })
 
-  const texts = await read($, held)
+  const text = await read($, draft)
 
-  if (texts.length === 0) {
+  if (text === '') {
     return
   }
 
-  const { isFilled } = await $.prompt.fill({
-    text: texts.join('\n\n'),
-    mode: 'append',
-  })
+  const { isFilled } = await $.prompt.fill({ text, mode: 'append' })
 
   if (isFilled) {
-    await update($, held, () => [])
+    await update($, draft, () => '')
   } else {
     $.ui.toast(NOT_RETURNED)
   }
@@ -358,7 +365,20 @@ export const register: Register = on => {
     return { text: hidden ? 'Usage band hidden.' : 'Usage band shown.' }
   })
 
-  // A dead gate must never swallow a prompt: it fails open.
+  // The prompt box takes no typing while locked: every edit is answered with an
+  // empty box, and the pane asks for the keyboard back.
+  on('prompt.edit', async ($, e, next) => {
+    if (!(await read($, isLocked))) {
+      return next(e)
+    }
+
+    void hold($)
+
+    return { text: '', cursor: 0 }
+  }).catch((_, e, next) => next(e))
+
+  // A prompt that reaches a locked session another way is refused, and not
+  // kept. A dead gate must never swallow a prompt: it fails open.
   on('prompt.submit', async ($, e, next) => {
     if (!(await read($, isLocked)) || !isPersons(e.origin)) {
       return next(e)
@@ -366,7 +386,6 @@ export const register: Register = on => {
 
     // The prompt box has just emptied, so the pane can have the keyboard back.
     await $.ui.open(OPEN)
-    await update($, held, texts => [...texts, e.text])
 
     return { drop: REFUSAL }
   }).catch((_, e, next) => next(e))
@@ -417,8 +436,9 @@ export const register: Register = on => {
           the pane takes the keyboard back when you click away.
         </Text>
         <Text dimColor>
-          Your draft and any prompt you send are kept, and return to the prompt
-          box when you unlock. The Stop button still works.
+          The prompt box takes no typing while locked. A draft that was already
+          in it is set aside, and returns when you unlock. The Stop button
+          still works.
         </Text>
         <Box>
           <Button key="unlock" variant="primary" onPress={() => release($)}>

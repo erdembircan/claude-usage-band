@@ -6,7 +6,7 @@ declare module 'claude-code' {
       limits: Limit[]
       isHidden: boolean
       isLocked: boolean
-      held: string[]
+      draft: string
     }
   }
 }

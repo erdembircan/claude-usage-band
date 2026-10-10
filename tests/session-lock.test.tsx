@@ -168,12 +168,20 @@ test('draws a lock beside the dials, and a press locks the session', async (
   await band.unmount()
 })
 
-test('sets a draft aside on lock and puts it back on unlock', async ($, on) => {
-  const { desk } = engine(on, { draft: 'half a thought' })
+test('sets a draft aside on lock and puts only that back on unlock', async (
+  $,
+  on,
+) => {
+  const { clock, desk } = engine(on, { draft: 'half a thought' })
   await $.session.measure(MEASURE)
   const band = await $.ui.mount(BAND)
 
   await band.press({ key: 'lock' })
+  expect(desk.box).toBe('')
+
+  // What lands in the box during the lock is dropped, not kept.
+  desk.box = 'stray keys'
+  await clock.advance(250)
   expect(desk.box).toBe('')
 
   await band.press({ key: 'lock' })
@@ -183,7 +191,7 @@ test('sets a draft aside on lock and puts it back on unlock', async ($, on) => {
   await band.unmount()
 })
 
-test('keeps a prompt the person sends while locked, and returns it', async (
+test('refuses a prompt the person sends while locked, and does not keep it', async (
   $,
   on,
 ) => {
@@ -193,7 +201,7 @@ test('keeps a prompt the person sends while locked, and returns it', async (
   for (const kind of ['sdk', 'composer', 'bridge', 'slack-ping'] as const) {
     const answer = await $.prompt.submit(typed(`from ${kind}`, kind))
 
-    expect(String(answer.drop).startsWith('The session is locked.')).toBe(true)
+    expect(String(answer.drop).startsWith('The session is locked')).toBe(true)
   }
 
   expect(desk.entered).toEqual([])
@@ -201,9 +209,7 @@ test('keeps a prompt the person sends while locked, and returns it', async (
   expect(desk.opens.length).toBe(5)
 
   await $.command.run({ ...RUN, args: 'unlock' })
-  expect(desk.box).toBe(
-    'from sdk\n\nfrom composer\n\nfrom bridge\n\nfrom slack-ping',
-  )
+  expect(desk.box).toBe('')
 
   expect((await $.prompt.submit(typed('after'))).text).toBe('after')
   expect(desk.entered).toEqual(['after'])
@@ -313,7 +319,7 @@ test('asks for the keyboard again when it has left the pane', async ($, on) => {
   expect(desk.opens.length).toBe(2)
 
   // Refused then, it is asked again on the watch, and not once it is back.
-  await clock.advance(1_000)
+  await clock.advance(250)
   expect(desk.opens.length).toBe(3)
 
   desk.hasKeyboard = true
@@ -364,7 +370,7 @@ test('puts the lock back when the session starts over', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   expect(desk.opens.length).toBe(2)
 
-  await clock.advance(1_000)
+  await clock.advance(250)
   expect(desk.opens.length).toBe(3)
 })
 
