@@ -81,15 +81,17 @@ const OPEN = {
 // How often a locked session checks that the pane still has the keyboard.
 const WATCH = 250
 
-// A prompt of the person's own, by where it came from: typed here (a host such
-// as the desktop app submits it as `sdk`), sent over Remote Control, or pinged
-// from Slack. Every other prompt passes a locked session: a background task or
-// agent reporting back, a schedule, another session, a plugin, and what the
-// desktop app sends of its own accord, such as a failed check on a pull request
-// it watches, which it stamps `auto-continuation`.
+// A prompt the person typed somewhere the lock cannot close: Enter at a
+// terminal, a message over Remote Control, a ping from Slack. The desktop app
+// is not on the list. It submits what is typed in its box as `sdk`, but it
+// sends the same way what goes out on a click or of its own accord, such as an
+// artifact comment sent to Claude, so `sdk` cannot tell typing apart. It need
+// not: the box takes no typing while locked (see prompt.edit), so nothing typed
+// there can reach the gate. Every other prompt passes a locked session: a
+// background task or agent reporting back, a schedule, another session, a
+// plugin, and whatever the desktop app sends.
 const PERSONS: readonly PromptOrigin['kind'][] = [
   'composer',
-  'sdk',
   'bridge',
   'slack-ping',
 ]
@@ -386,8 +388,8 @@ export const register: Register = on => {
     return { text: '', cursor: 0 }
   }).catch((_, e, next) => next(e))
 
-  // A prompt that reaches a locked session another way is refused, and not
-  // kept. A dead gate must never swallow a prompt: it fails open.
+  // A prompt typed somewhere other than the desktop's box is refused while
+  // locked, and not kept. A dead gate must never swallow a prompt: it fails open.
   on('prompt.submit', async ($, e, next) => {
     if (!(await read($, isLocked)) || !isPersons(e.origin)) {
       return next(e)
