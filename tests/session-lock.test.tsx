@@ -214,7 +214,7 @@ test('refuses a prompt the person sends while locked, and does not keep it', asy
   const { desk } = engine(on)
   await $.command.run({ ...RUN, args: 'lock' })
 
-  for (const kind of ['sdk', 'composer', 'bridge', 'slack-ping'] as const) {
+  for (const kind of ['composer', 'bridge', 'slack-ping'] as const) {
     const answer = await $.prompt.submit(typed(`from ${kind}`, kind))
 
     expect(String(answer.drop).startsWith('The session is locked')).toBe(true)
@@ -222,7 +222,7 @@ test('refuses a prompt the person sends while locked, and does not keep it', asy
 
   expect(desk.entered).toEqual([])
   // Each refusal asks for the keyboard again: the prompt box has just emptied.
-  expect(desk.opens.length).toBe(5)
+  expect(desk.opens.length).toBe(4)
 
   await $.command.run({ ...RUN, args: 'unlock' })
   expect(desk.box).toBe('')
@@ -236,6 +236,7 @@ test('lets through what is not the person typing', async ($, on) => {
   await $.command.run({ ...RUN, args: 'lock' })
 
   for (const kind of [
+    'sdk',
     'task-notification',
     'scheduled-trigger',
     'peer',
@@ -253,6 +254,7 @@ test('lets through what is not the person typing', async ($, on) => {
   })
 
   expect(desk.entered).toEqual([
+    'sdk',
     'task-notification',
     'scheduled-trigger',
     'peer',
@@ -261,6 +263,28 @@ test('lets through what is not the person typing', async ($, on) => {
     'auto-continuation',
     'from a plugin',
   ])
+})
+
+test("lets the desktop app's own prompts into a locked session", async (
+  $,
+  on,
+) => {
+  const { clock, desk } = engine(on)
+  await $.command.run({ ...RUN, args: 'lock' })
+  const opened = desk.opens.length
+
+  const answer = await $.prompt.submit(
+    typed('[Artifact comment sent to Claude]', 'sdk'),
+  )
+
+  expect(answer.text).toBe('[Artifact comment sent to Claude]')
+  expect(answer.drop).toBeUndefined()
+  expect(desk.entered).toEqual(['[Artifact comment sent to Claude]'])
+  expect(desk.opens.length).toBe(opened)
+
+  desk.box = 'stray keys'
+  await clock.advance(250)
+  expect(desk.box).toBe('')
 })
 
 test(
