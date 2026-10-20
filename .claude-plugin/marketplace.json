@@ -1,7 +1,7 @@
 {
   "name": "claude-usage-band",
   "description": "The usage-band mod, installed from its own repository",
-  "owner": { "name": "erdembircan" },
+  "owner": { "name": "Erdem Bircan" },
   "plugins": [
     {
       "name": "usage-band",
