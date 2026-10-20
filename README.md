@@ -57,20 +57,6 @@ A newer version comes with `claude plugin update usage-band@erdembircan-plugins`
 
 ## Develop
 
-The repository is its own marketplace as well, so a checkout installs as it stands:
-
-```bash
-claude plugin marketplace add /path/to/claude-usage-band
-```
-
-```bash
-claude plugin install usage-band@claude-usage-band
-```
-
-Keep one copy installed: `usage-band@claude-usage-band` and `usage-band@erdembircan-plugins` carry the same name, so uninstall the other first.
-
-The desktop app runs the installed copy, not the folder. After a change, bump `version` in `.claude-plugin/plugin.json`, run `claude plugin update usage-band@claude-usage-band`, and start a new session.
-
 ```bash
 claude --plugin-dir .
 ```
@@ -90,6 +76,8 @@ A load with `--plugin-dir` also writes the API types of the build you run to `.c
 ```bash
 tsc -p .
 ```
+
+A change reaches installs once it is on `master` with `version` bumped in `.claude-plugin/plugin.json`.
 
 ## Diagrams
 
