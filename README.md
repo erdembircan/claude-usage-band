@@ -37,19 +37,39 @@ The limits of it:
 
 ## Install
 
-The repository is its own marketplace:
+At the prompt of a Claude Code session in a terminal:
+
+```text
+/plugin install usage-band --marketplace erdembircan/plugin-marketplace
+```
+
+Answer `y` to add the marketplace, then pick a scope. Installed at the user scope, the mod loads in every session after, the desktop app's included.
+
+From a shell:
 
 ```bash
-claude plugin marketplace add ~/Developer/JS/claude-usage-band
+claude plugin install usage-band --marketplace erdembircan/plugin-marketplace
+```
+
+In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `erdembircan/plugin-marketplace`, then **Add plugin**.
+
+A newer version comes with `claude plugin update usage-band@erdembircan-plugins` and a new session.
+
+## Develop
+
+The repository is its own marketplace as well, so a checkout installs as it stands:
+
+```bash
+claude plugin marketplace add /path/to/claude-usage-band
 ```
 
 ```bash
 claude plugin install usage-band@claude-usage-band
 ```
 
-New sessions load it. After a change, bump `version` in `.claude-plugin/plugin.json` and run `claude plugin update usage-band@claude-usage-band`.
+Keep one copy installed: `usage-band@claude-usage-band` and `usage-band@erdembircan-plugins` carry the same name, so uninstall the other first.
 
-## Develop
+The desktop app runs the installed copy, not the folder. After a change, bump `version` in `.claude-plugin/plugin.json`, run `claude plugin update usage-band@claude-usage-band`, and start a new session.
 
 ```bash
 claude --plugin-dir .
@@ -58,7 +78,7 @@ claude --plugin-dir .
 loads the folder for one session and reloads the module on save.
 
 ```bash
-claude plugin validate .claude-plugin/plugin.json
+claude plugin validate .
 ```
 
 ```bash
