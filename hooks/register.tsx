@@ -452,7 +452,9 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // Another mod may draw the band too: what it drew is kept beside the dials.
+    // The band is one tree for every mod: each adds its own line and passes the
+    // lines beneath through as they came. Ours goes under what another mod drew;
+    // we never open that up or set it in our row.
     const beneath = await next(e)
 
     if (e.surface !== 'desktop' || e.props.hasSurvey) {
@@ -502,7 +504,7 @@ export const register: Register = on => {
       )
     }
 
-    return (
+    const ownLine = (
       <Box alignItems="center" columnGap={3} flexWrap="wrap">
         {session && meter(SESSION, session)}
         {week && meter(WEEK, week)}
@@ -532,7 +534,17 @@ export const register: Register = on => {
             />
           </Box>
         </Box>
-        {hasContent(beneath) && beneath}
+      </Box>
+    )
+
+    if (!hasContent(beneath)) {
+      return ownLine
+    }
+
+    return (
+      <Box flexDirection="column">
+        {beneath}
+        {ownLine}
       </Box>
     )
   })

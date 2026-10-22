@@ -1,4 +1,9 @@
-import type { On, SessionMeasureInput, SessionRateLimit } from 'claude-code'
+import type {
+  On,
+  RenderNode,
+  SessionMeasureInput,
+  SessionRateLimit,
+} from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const NOW = Date.parse('2026-10-02T10:00:00Z')
@@ -35,13 +40,40 @@ const MEASURE: SessionMeasureInput = {
   changed: ['rateLimits'],
 }
 
+// The children of a drawn element, which are elements and strings.
+const childrenOf = (node: RenderNode | undefined) =>
+  node !== undefined && typeof node !== 'string' && 'children' in node
+    ? (node.children ?? [])
+    : []
+
+// The props and the type of a drawn node, of which a string has none.
+const propsOf = (node: RenderNode | undefined): Record<string, unknown> =>
+  node !== undefined && typeof node !== 'string' && 'props' in node
+    ? (node.props ?? {})
+    : {}
+const typeOf = (node: RenderNode | undefined) =>
+  typeof node === 'string' ? undefined : node?.type
+
 // What sits beneath the mod: the engine, which echoes the measurement and draws
-// an empty band, and, when asked for, another mod that drew in that band.
-const engine = (on: On, { hasOtherBand = false } = {}) => {
+// an empty band, and, when asked for, another mod that drew in that band: a
+// column of one text, or a row of two (as a mod that draws a row does).
+const engine = (
+  on: On,
+  { hasOtherBand = false, isOtherRow = false } = {},
+) => {
   const clock = mock.clock(on, { now: NOW })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
+
+    if (isOtherRow) {
+      return (
+        <Box alignItems="center" columnGap={1}>
+          <Text>chip</Text>
+          <Text>tab</Text>
+        </Box>
+      )
+    }
 
     return hasOtherBand ? (
       <Box>
@@ -228,7 +260,7 @@ test('shows a window past its reset time at 0% with no time left', async (
   await ui.unmount()
 })
 
-test('keeps what another mod drew beside the dials on the desktop', async (
+test('keeps what another mod drew on its own line above the dials', async (
   $,
   on,
 ) => {
@@ -237,12 +269,43 @@ test('keeps what another mod drew beside the dials on the desktop', async (
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const drawn = await ui.drawn()
   const texts = await ui.findAll({ type: 'Text' })
+  const [other, own] = childrenOf(drawn)
 
   expect((await ui.findAll({ type: 'Svg' })).length).toBe(3)
-  expect(await ui.find({ type: 'Text', text: 'another band' })).toBeDefined()
-  // The dials and the lock come first, then what was beneath.
-  expect(texts.map(one => one.text)).toEqual(['42%', '92%', 'another band'])
-  expect('children' in drawn ? drawn.children?.length : 0).toBe(4)
+  // The other mod's line first, then ours under it.
+  expect(texts.map(one => one.text)).toEqual(['another band', '42%', '92%'])
+  expect(drawn.type).toBe('Box')
+  expect(propsOf(drawn)).toEqual({ flexDirection: 'column' })
+  expect(childrenOf(drawn).length).toBe(2)
+  expect(typeOf(other)).toBe('Box')
+  expect(childrenOf(childrenOf(other)[0])).toEqual(['another band'])
+  expect(typeOf(own)).toBe('Box')
+  expect(propsOf(own).flexWrap).toBe('wrap')
+  expect(propsOf(own).columnGap).toBe(3)
+  // The two dials and the padlock, and nothing of the other mod's.
+  expect(childrenOf(own).length).toBe(3)
+  expect(JSON.stringify(own).includes('another band')).toBe(false)
+
+  await ui.unmount()
+})
+
+test("leaves another mod's line exactly as it was drawn", async ($, on) => {
+  engine(on, { hasOtherBand: true, isOtherRow: true })
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const drawn = await ui.drawn()
+  const other = childrenOf(drawn)[0]
+  const pieces = childrenOf(other)
+
+  expect(propsOf(drawn)).toEqual({ flexDirection: 'column' })
+  expect(typeOf(other)).toBe('Box')
+  expect(propsOf(other).alignItems).toBe('center')
+  expect(propsOf(other).columnGap).toBe(1)
+  expect(pieces.length).toBe(2)
+  expect(
+    pieces.map(one => (typeof one === 'string' ? one : one.type)),
+  ).toEqual(['Text', 'Text'])
+  expect(pieces.map(one => childrenOf(one))).toEqual([['chip'], ['tab']])
 
   await ui.unmount()
 })
@@ -282,7 +345,9 @@ test('adds nothing for the empty band of the engine', async ($, on) => {
   const drawn = await ui.drawn()
 
   expect(drawn.type).toBe('Box')
-  expect('children' in drawn ? drawn.children?.length : 0).toBe(3)
+  // The root is our own row, not a column around it.
+  expect(propsOf(drawn).flexDirection).toBeUndefined()
+  expect(childrenOf(drawn).length).toBe(3)
 
   await ui.unmount()
 })
