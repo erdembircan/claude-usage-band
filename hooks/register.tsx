@@ -542,7 +542,7 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" rowGap="md">
         {beneath}
         {ownLine}
       </Box>

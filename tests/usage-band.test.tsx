@@ -275,7 +275,7 @@ test('keeps what another mod drew on its own line above the dials', async (
   // The other mod's line first, then ours under it.
   expect(texts.map(one => one.text)).toEqual(['another band', '42%', '92%'])
   expect(drawn.type).toBe('Box')
-  expect(propsOf(drawn)).toEqual({ flexDirection: 'column' })
+  expect(propsOf(drawn)).toEqual({ flexDirection: 'column', rowGap: 'md' })
   expect(childrenOf(drawn).length).toBe(2)
   expect(typeOf(other)).toBe('Box')
   expect(childrenOf(childrenOf(other)[0])).toEqual(['another band'])
@@ -297,7 +297,7 @@ test("leaves another mod's line exactly as it was drawn", async ($, on) => {
   const other = childrenOf(drawn)[0]
   const pieces = childrenOf(other)
 
-  expect(propsOf(drawn)).toEqual({ flexDirection: 'column' })
+  expect(propsOf(drawn)).toEqual({ flexDirection: 'column', rowGap: 'md' })
   expect(typeOf(other)).toBe('Box')
   expect(propsOf(other).alignItems).toBe('center')
   expect(propsOf(other).columnGap).toBe(1)
@@ -347,6 +347,7 @@ test('adds nothing for the empty band of the engine', async ($, on) => {
   expect(drawn.type).toBe('Box')
   // The root is our own row, not a column around it.
   expect(propsOf(drawn).flexDirection).toBeUndefined()
+  expect(propsOf(drawn).rowGap).toBeUndefined()
   expect(childrenOf(drawn).length).toBe(3)
 
   await ui.unmount()
